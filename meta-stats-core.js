@@ -174,3 +174,85 @@ function regGammaQ(a, x) {
   }
   return Math.exp(-x + a * Math.log(x) - lnGamma(a)) / f;
 }
+
+// ============================================================
+// POOLING — tau2 estimators and weighted pooling
+// ============================================================
+
+// Fixed-effect (common-effect) pooling
+export function fePool(yi, vi) {
+  const k = yi.length;
+  const w = vi.map(v => 1/v);
+  const sumW = w.reduce((a,b) => a+b, 0);
+  const theta = w.reduce((a,b,i) => a + b*yi[i], 0) / sumW;
+  const se = Math.sqrt(1/sumW);
+  const Q = w.reduce((a,b,i) => a + b * (yi[i]-theta)**2, 0);
+  return { theta, se, w, sumW, Q, k };
+}
+
+// Random-effects pooling for given tau2
+export function rePool(yi, vi, tau2) {
+  const k = yi.length;
+  const ws = vi.map(v => 1/(v + tau2));
+  const sumWs = ws.reduce((a,b) => a+b, 0);
+  const theta = ws.reduce((a,b,i) => a + b*yi[i], 0) / sumWs;
+  const se = Math.sqrt(1/sumWs);
+  const Qs = ws.reduce((a,b,i) => a + b*(yi[i]-theta)**2, 0);
+  return { theta, se, ws, sumWs, Qs, k, tau2 };
+}
+
+export const estimators = {};
+
+// DerSimonian-Laird (legacy — biased for k<10)
+estimators.DL = function(yi, vi) {
+  const fe = fePool(yi, vi);
+  const k = yi.length;
+  const sumW = fe.sumW;
+  const sumW2 = fe.w.reduce((a,w) => a + w*w, 0);
+  const C = sumW - sumW2/sumW;
+  const tau2 = Math.max(0, (fe.Q - (k-1)) / C);
+  return { tau2, method: 'DL' };
+};
+
+// REML — Fisher scoring (recommended for k>=3)
+estimators.REML = function(yi, vi) {
+  const k = yi.length;
+  let tau2 = estimators.DL(yi, vi).tau2;
+  for (let iter = 0; iter < 100; iter++) {
+    const ws = vi.map(v => 1/(v + tau2));
+    const sumW = ws.reduce((a,b) => a+b, 0);
+    const theta = ws.reduce((a,b,i) => a + b*yi[i], 0) / sumW;
+    const sumW2 = ws.reduce((a,w) => a + w*w, 0);
+    const sumW3 = ws.reduce((a,w) => a + w**3, 0);
+    const sumW2r2 = ws.reduce((a,w,i) => a + w*w*(yi[i]-theta)**2, 0);
+    // REML score and info (Fisher scoring)
+    const score = -0.5 * sumW + 0.5 * sumW2/sumW + 0.5 * sumW2r2;
+    const info = 0.5 * (sumW2 - 2*sumW3/sumW + sumW2*sumW2/(sumW*sumW));
+    if (info < 1e-15) break;
+    const tau2New = Math.max(0, tau2 + score/info);
+    if (Math.abs(tau2New - tau2) < 1e-10) { tau2 = tau2New; break; }
+    tau2 = tau2New;
+  }
+  return { tau2, method: 'REML' };
+};
+
+// Paule-Mandel (iterative, robust for small k)
+estimators.PM = function(yi, vi) {
+  const k = yi.length;
+  let tau2 = estimators.DL(yi, vi).tau2;
+  for (let iter = 0; iter < 1000; iter++) {
+    const r = rePool(yi, vi, tau2);
+    const Qs = r.Qs;
+    const target = k - 1;
+    if (Math.abs(Qs - target) < 1e-8) break;
+    const ws = vi.map(v => 1/(v + tau2));
+    const sumW = ws.reduce((a,b) => a+b, 0);
+    const sumW2 = ws.reduce((a,w) => a + w*w, 0);
+    const C = sumW - sumW2/sumW;
+    const delta = (Qs - target) / C;
+    const tau2New = Math.max(0, tau2 + delta);
+    if (Math.abs(tau2New - tau2) < 1e-10) { tau2 = tau2New; break; }
+    tau2 = tau2New;
+  }
+  return { tau2, method: 'PM' };
+};
