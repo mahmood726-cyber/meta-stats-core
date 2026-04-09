@@ -387,6 +387,46 @@ export function trimFill(yi, vi) {
            isSensitivityAnalysis: true, method: 'trimFill' };
 }
 
+// ============================================================
+// CONVENIENCE API
+// ============================================================
+
+// Full meta-analysis — returns everything needed for a forest plot + report
+export function metaAnalysis(yi, vi, options = {}) {
+  const method = options.method || 'REML';
+  const k = yi.length;
+
+  // 1. Estimate tau2
+  const est = (estimators[method] || estimators.REML)(yi, vi);
+  const tau2 = est.tau2;
+
+  // 2. Pool
+  const pool = rePool(yi, vi, tau2);
+
+  // 3. HKSJ CI (default) or Wald
+  const ci = hksjCI(pool.theta, yi, vi, tau2, k);
+
+  // 4. Prediction interval
+  const pi = predictionInterval(pool.theta, tau2, pool.se, k);
+
+  // 5. Heterogeneity
+  const fe = fePool(yi, vi);
+  const het = heterogeneity(fe.Q, k, tau2);
+
+  // 6. Study weights (%)
+  const weights = pool.ws.map(w => 100 * w / pool.sumWs);
+
+  return {
+    theta: pool.theta, se: pool.se,
+    ci, pi,
+    tau2, I2: het.I2, I2_ci: [het.I2_lower, het.I2_upper],
+    H2: het.H2, Q: fe.Q, Qp: het.Qp,
+    k, weights,
+    estimator: method, ciMethod: 'HKSJ',
+    lowPowerWarning: het.lowPowerWarning
+  };
+}
+
 // --- Internal: Weighted least squares ---
 function wls(y, x, w) {
   const n = y.length;
