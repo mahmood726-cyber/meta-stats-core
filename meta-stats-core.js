@@ -291,3 +291,28 @@ export function predictionInterval(theta, tau2, se, k) {
   const piSe = Math.sqrt(tau2 + se * se);
   return [theta - tcrit * piSe, theta + tcrit * piSe];
 }
+
+// ============================================================
+// HETEROGENEITY
+// ============================================================
+
+export function heterogeneity(Q, k, tau2) {
+  const df = k - 1;
+  const I2 = Math.max(0, 100 * (Q - df) / Q);
+  const H2 = Q / df;
+  const Qp = 1 - chi2CDF(Q, df);
+
+  // Q-profile CI for I² (Viechtbauer 2007)
+  let I2_lower = 0, I2_upper = 100;
+  if (k >= 3) {
+    const Q_upper = chi2Quantile(0.025, df);
+    const Q_lower = chi2Quantile(0.975, df);
+    I2_lower = Math.max(0, 100 * (Q - Q_lower) / Q);
+    I2_upper = Math.min(100, 100 * (Q - Q_upper) / Q);
+    if (I2_upper < 0) I2_upper = 0;
+  }
+
+  const lowPowerWarning = k < 10 && I2 === 0;
+
+  return { Q, df, Qp, I2, H2, tau2, I2_lower, I2_upper, lowPowerWarning };
+}
