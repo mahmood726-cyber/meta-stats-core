@@ -296,9 +296,22 @@ export function predictionInterval(theta, tau2, se, k) {
 // HETEROGENEITY
 // ============================================================
 
-export function heterogeneity(Q, k, tau2) {
+export function heterogeneity(Q, k, tau2, vi) {
   const df = k - 1;
-  const I2 = Math.max(0, 100 * (Q - df) / Q);
+  // If vi provided, use tau²-based I² (matches metafor):
+  //   s2w = (k-1) * sum(wi) / (sum(wi)² - sum(wi²))
+  //   I² = 100 * tau² / (tau² + s2w)
+  // Otherwise fall back to Q-based: I² = 100 * (Q - df) / Q
+  let I2;
+  if (vi && vi.length >= 2 && tau2 > 0) {
+    const wi = vi.map(v => 1 / v);
+    const sumW = wi.reduce((a, b) => a + b, 0);
+    const sumW2 = wi.reduce((a, w) => a + w * w, 0);
+    const s2w = (k - 1) * sumW / (sumW * sumW - sumW2);
+    I2 = Math.max(0, 100 * tau2 / (tau2 + s2w));
+  } else {
+    I2 = Math.max(0, 100 * (Q - df) / Q);
+  }
   const H2 = Q / df;
   const Qp = 1 - chi2CDF(Q, df);
 
@@ -411,7 +424,7 @@ export function metaAnalysis(yi, vi, options = {}) {
 
   // 5. Heterogeneity
   const fe = fePool(yi, vi);
-  const het = heterogeneity(fe.Q, k, tau2);
+  const het = heterogeneity(fe.Q, k, tau2, vi);
 
   // 6. Study weights (%)
   const weights = pool.ws.map(w => 100 * w / pool.sumWs);
