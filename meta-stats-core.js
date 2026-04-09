@@ -316,3 +316,103 @@ export function heterogeneity(Q, k, tau2) {
 
   return { Q, df, Qp, I2, H2, tau2, I2_lower, I2_upper, lowPowerWarning };
 }
+
+// ============================================================
+// PUBLICATION BIAS
+// ============================================================
+
+// Radial Egger regression (preferred over standard Egger)
+export function radialEgger(yi, vi) {
+  const k = yi.length;
+  const se = vi.map(v => Math.sqrt(v));
+  // Radial: regress yi/se on 1/se (weighted by 1/vi)
+  const x = se.map(s => 1/s);        // precision
+  const y = yi.map((yv,i) => yv/se[i]); // standardised effect
+  const w = vi.map(v => 1/v);
+  const result = wls(y, x, w);
+  const lowPowerWarning = k < 10;
+  return { intercept: result.intercept, slope: result.slope,
+           pValue: result.pIntercept, se: result.seIntercept,
+           lowPowerWarning, method: 'radialEgger' };
+}
+
+// Peters' test — for binary outcomes, regress on 1/n not 1/SE
+export function petersTest(yi, vi, ni) {
+  const x = ni.map(n => 1/n);
+  const w = vi.map(v => 1/v);
+  const result = wls(yi, x, w);
+  return { intercept: result.intercept, slope: result.slope,
+           pValue: result.pIntercept, method: 'Peters' };
+}
+
+// PET-PEESE conditional procedure
+export function petPeese(yi, vi) {
+  const se = vi.map(v => Math.sqrt(v));
+  const w = vi.map(v => 1/v);
+  // PET: regress yi on SE
+  const pet = wls(yi, se, w);
+  const petPvalue = pet.pSlope;
+  // If PET rejects null (SE predicts effect), switch to PEESE
+  if (petPvalue < 0.10) {
+    const peese = wls(yi, vi, w);
+    return { method: 'PEESE', adjustedEffect: peese.intercept,
+             pValue: peese.pIntercept, petPvalue };
+  }
+  return { method: 'PET', adjustedEffect: pet.intercept,
+           pValue: pet.pIntercept, petPvalue };
+}
+
+// Trim-and-fill (L0 estimator) — SENSITIVITY ONLY
+export function trimFill(yi, vi) {
+  const k = yi.length;
+  const idx = yi.map((_,i) => i).sort((a,b) => yi[a] - yi[b]);
+  const ys = idx.map(i => yi[i]);
+  const vs = idx.map(i => vi[i]);
+  const fe = fePool(ys, vs);
+  const ranks = ys.map((y,i) => ({ y, v: vs[i], rank: i+1, dev: y - fe.theta }));
+  const rightDev = ranks.filter(r => r.dev > 0);
+  const T = rightDev.reduce((a,r) => a + r.rank, 0);
+  const k0 = Math.max(0, Math.round(2 * T / k - (k + 1) / 2));
+  const yFilled = [...ys];
+  const vFilled = [...vs];
+  for (let i = 0; i < k0; i++) {
+    const mirrorIdx = k - 1 - i;
+    if (mirrorIdx >= 0) {
+      yFilled.push(2 * fe.theta - ys[mirrorIdx]);
+      vFilled.push(vs[mirrorIdx]);
+    }
+  }
+  const adjusted = fePool(yFilled, vFilled);
+  return { k0, adjustedEffect: adjusted.theta, originalEffect: fe.theta,
+           isSensitivityAnalysis: true, method: 'trimFill' };
+}
+
+// --- Internal: Weighted least squares ---
+function wls(y, x, w) {
+  const n = y.length;
+  let swx = 0, sw = 0, swy = 0, swxx = 0, swxy = 0;
+  for (let i = 0; i < n; i++) {
+    sw += w[i]; swx += w[i]*x[i]; swy += w[i]*y[i];
+    swxx += w[i]*x[i]*x[i]; swxy += w[i]*x[i]*y[i];
+  }
+  const denom = sw*swxx - swx*swx;
+  const slope = (sw*swxy - swx*swy) / denom;
+  const intercept = (swy - slope*swx) / sw;
+  let ssr = 0;
+  for (let i = 0; i < n; i++) ssr += w[i] * (y[i] - intercept - slope*x[i])**2;
+  const s2 = ssr / (n - 2);
+  const seIntercept = Math.sqrt(s2 * swxx / denom);
+  const seSlope = Math.sqrt(s2 * sw / denom);
+  const tInt = intercept / seIntercept;
+  const tSlope = slope / seSlope;
+  const pIntercept = 2 * (1 - tCDFabs(Math.abs(tInt), n-2));
+  const pSlope = 2 * (1 - tCDFabs(Math.abs(tSlope), n-2));
+  return { intercept, slope, seIntercept, seSlope, pIntercept, pSlope };
+}
+
+function tCDFabs(t, df) {
+  // CDF of |t| — positive tail
+  if (df <= 0) return 0.5;
+  const x = df / (df + t*t);
+  return 1 - 0.5 * regBetaI(x, df/2, 0.5);
+}
