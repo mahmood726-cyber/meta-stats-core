@@ -256,3 +256,38 @@ estimators.PM = function(yi, vi) {
   }
   return { tau2, method: 'PM' };
 };
+
+// ============================================================
+// CONFIDENCE INTERVALS
+// ============================================================
+
+// Wald CI (z-based) — legacy, shown for comparison only
+export function waldCI(theta, se) {
+  const z = 1.959964;
+  return [theta - z * se, theta + z * se];
+}
+
+// HKSJ CI — t_{k-1}, with floor correction
+// Floor: if Q < k-1, HKSJ narrows below DL — set floor max(hksjVar, waldVar)
+export function hksjCI(theta, yi, vi, tau2, k) {
+  if (k < 2) return waldCI(theta, Math.sqrt(1 / vi.reduce((a,v) => a + 1/v, 0)));
+  const ws = vi.map(v => 1/(v + tau2));
+  const sumWs = ws.reduce((a,b) => a+b, 0);
+  const Qs = ws.reduce((a,w,i) => a + w * (yi[i] - theta)**2, 0);
+  // HKSJ variance
+  let hksjVar = Qs / ((k - 1) * sumWs);
+  // FLOOR: prevent HKSJ from narrowing CI below Wald when Q* < k-1
+  const waldVar = 1 / sumWs;
+  hksjVar = Math.max(hksjVar, waldVar);
+  const seAdj = Math.sqrt(hksjVar);
+  const tcrit = Math.abs(tQuantile(0.025, k - 1));
+  return [theta - tcrit * seAdj, theta + tcrit * seAdj];
+}
+
+// Prediction interval — t_{k-2} NOT t_{k-1}. Undefined for k<3.
+export function predictionInterval(theta, tau2, se, k) {
+  if (k < 3) return [NaN, NaN];
+  const tcrit = Math.abs(tQuantile(0.025, k - 2));
+  const piSe = Math.sqrt(tau2 + se * se);
+  return [theta - tcrit * piSe, theta + tcrit * piSe];
+}
