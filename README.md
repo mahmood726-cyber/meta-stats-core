@@ -54,10 +54,10 @@ Since single-file apps cannot use ES imports, inline the functions directly into
 node --test test/*.js
 ```
 
-44 tests across 7 suites. Reference values from R metafor 4.8-0 (BCG vaccine dataset).
+45 tests across 7 suites. Reference values from R metafor 4.8-0 (BCG vaccine dataset).
 
 ## Stats
 
-- Engine: 471 lines
-- Tests: 391 lines (44 tests)
+- Engine: pure JavaScript, single module
+- Tests: 45 tests across 7 suites
 - Zero dependencies

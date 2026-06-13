@@ -47,4 +47,15 @@ describe('metaAnalysis (full pipeline)', () => {
     assert.ok(isNaN(r.pi[0]), 'PI undefined for k<3');
     assert.ok(!isNaN(r.ci[0]), 'CI should still work');
   });
+  it('k=1 single study does not poison theta/se/CI with NaN', () => {
+    // df=0 → DL C=0 (0/0); guard sets tau2=0 so the single estimate passes through.
+    const r = metaAnalysis([-0.5], [0.1]);
+    assert.strictEqual(r.theta, -0.5, 'theta is the single study effect');
+    assert.ok(Math.abs(r.se - Math.sqrt(0.1)) < 1e-12, 'se = sqrt(v)');
+    assert.strictEqual(r.tau2, 0, 'tau2 = 0 for k=1');
+    assert.ok(!isNaN(r.ci[0]) && !isNaN(r.ci[1]), 'CI is finite');
+    assert.ok(r.ci[0] < r.theta && r.theta < r.ci[1], 'theta within CI');
+    assert.ok(isNaN(r.pi[0]), 'PI undefined for k<3');
+    assert.strictEqual(r.I2, 0, 'I2=0 (heterogeneity undefined for single study)');
+  });
 });

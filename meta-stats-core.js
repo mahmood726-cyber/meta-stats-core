@@ -1,7 +1,7 @@
 // ============================================================
 // meta-stats-core.js — Journal-grade meta-analysis statistics
 // Implements: REML, PM, HKSJ, PI, radial Egger, Peters, PET-PEESE
-// Validated against: R metafor 4.6-0 to 6 decimal places
+// Validated against: R metafor 4.8-0 to 6 decimal places
 // License: MIT
 // ============================================================
 
@@ -205,12 +205,14 @@ export const estimators = {};
 
 // DerSimonian-Laird (legacy — biased for k<10)
 estimators.DL = function(yi, vi) {
-  const fe = fePool(yi, vi);
   const k = yi.length;
+  // k<2: no between-study variance is estimable (df=0, C=0 → 0/0). tau2=0 by convention.
+  if (k < 2) return { tau2: 0, method: 'DL' };
+  const fe = fePool(yi, vi);
   const sumW = fe.sumW;
   const sumW2 = fe.w.reduce((a,w) => a + w*w, 0);
   const C = sumW - sumW2/sumW;
-  const tau2 = Math.max(0, (fe.Q - (k-1)) / C);
+  const tau2 = C > 0 ? Math.max(0, (fe.Q - (k-1)) / C) : 0;
   return { tau2, method: 'DL' };
 };
 
@@ -303,7 +305,10 @@ export function heterogeneity(Q, k, tau2, vi) {
   //   I² = 100 * tau² / (tau² + s2w)
   // Otherwise fall back to Q-based: I² = 100 * (Q - df) / Q
   let I2;
-  if (vi && vi.length >= 2 && tau2 > 0) {
+  if (df < 1) {
+    // Single study (k<2): heterogeneity is undefined; report 0 rather than 0/0=NaN.
+    I2 = 0;
+  } else if (vi && vi.length >= 2 && tau2 > 0) {
     const wi = vi.map(v => 1 / v);
     const sumW = wi.reduce((a, b) => a + b, 0);
     const sumW2 = wi.reduce((a, w) => a + w * w, 0);
