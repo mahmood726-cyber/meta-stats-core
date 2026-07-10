@@ -1,0 +1,28 @@
+{
+  "name": "meta-stats-core",
+  "version": "1.0.0",
+  "description": "Journal-grade meta-analysis statistics engine in pure JavaScript. Zero dependencies. Validated against R metafor 4.8-0.",
+  "type": "module",
+  "main": "meta-stats-core.js",
+  "exports": "./meta-stats-core.js",
+  "files": [
+    "meta-stats-core.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "test": "node --test test/*.js"
+  },
+  "keywords": [
+    "meta-analysis",
+    "statistics",
+    "REML",
+    "heterogeneity",
+    "publication-bias",
+    "prediction-interval"
+  ],
+  "license": "MIT"
+}

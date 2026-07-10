@@ -28,6 +28,17 @@
     "fe": {
       "theta": [-0.43028516365],
       "Q": [152.2330080824]
+    },
+    "radialEgger": {
+      "note": "Galbraith/radial Egger by OLS on the standard normal deviate (== metafor::regtest model='lm'). Non-significant asymmetry for BCG.",
+      "intercept": [-2.1120421022],
+      "pValue": [0.1887070055]
+    },
+    "trimFill": {
+      "note": "Duval & Tweedie L0, FE center. Left side over-represented => 3 filled on the right.",
+      "k0": [3],
+      "adjustedEffect": [-0.3379303646],
+      "originalEffect": [-0.4302851846]
     }
   }
 }

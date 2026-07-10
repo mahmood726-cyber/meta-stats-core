@@ -182,6 +182,7 @@ function regGammaQ(a, x) {
 // Fixed-effect (common-effect) pooling
 export function fePool(yi, vi) {
   const k = yi.length;
+  if (k === 0) throw new Error('fePool: cannot pool an empty dataset (k=0)');
   const w = vi.map(v => 1/v);
   const sumW = w.reduce((a,b) => a+b, 0);
   const theta = w.reduce((a,b,i) => a + b*yi[i], 0) / sumW;
@@ -343,10 +344,14 @@ export function heterogeneity(Q, k, tau2, vi) {
 export function radialEgger(yi, vi) {
   const k = yi.length;
   const se = vi.map(v => Math.sqrt(v));
-  // Radial: regress yi/se on 1/se (weighted by 1/vi)
+  // Radial (Galbraith) Egger: regress the standard normal deviate yi/se on
+  // precision 1/se by ORDINARY least squares. The response is already
+  // standardised to ~unit variance, so it must NOT be re-weighted by 1/vi —
+  // doing both double-weights (equivalent to yi~se with weights 1/vi^2) and
+  // flips the asymmetry conclusion. OLS here == WLS(yi~se, w=1/vi).
   const x = se.map(s => 1/s);        // precision
   const y = yi.map((yv,i) => yv/se[i]); // standardised effect
-  const w = vi.map(v => 1/v);
+  const w = y.map(() => 1);          // OLS: equal weights
   const result = wls(y, x, w);
   const lowPowerWarning = k < 10;
   return { intercept: result.intercept, slope: result.slope,
@@ -380,22 +385,50 @@ export function petPeese(yi, vi) {
            pValue: pet.pIntercept, petPvalue };
 }
 
-// Trim-and-fill (L0 estimator) — SENSITIVITY ONLY
+// Average ranks (ties get the mean of the ranks they span) — for the L0 rank test.
+function averageRanks(a) {
+  const idx = a.map((_,i) => i).sort((i,j) => a[i] - a[j]);
+  const r = new Array(a.length);
+  let i = 0;
+  while (i < idx.length) {
+    let j = i;
+    while (j + 1 < idx.length && a[idx[j+1]] === a[idx[i]]) j++;
+    const avg = (i + j) / 2 + 1; // mean of ranks (i+1)..(j+1)
+    for (let t = i; t <= j; t++) r[idx[t]] = avg;
+    i = j + 1;
+  }
+  return r;
+}
+
+// Trim-and-fill (Duval & Tweedie L0 estimator) — SENSITIVITY ONLY.
+// L0 = max(0, round((4*Tn - k(k+1)) / (2k-1))) where Tn is the rank sum of the
+// OVER-REPRESENTED side, ranks taken over ABSOLUTE deviations |yi - center|.
+// Ranking by absolute deviation (not signed yi order) and the 2k-1 denominator
+// are both required — otherwise symmetric/unbiased data yields phantom fills.
 export function trimFill(yi, vi) {
   const k = yi.length;
   const idx = yi.map((_,i) => i).sort((a,b) => yi[a] - yi[b]);
   const ys = idx.map(i => yi[i]);
   const vs = idx.map(i => vi[i]);
   const fe = fePool(ys, vs);
-  const ranks = ys.map((y,i) => ({ y, v: vs[i], rank: i+1, dev: y - fe.theta }));
-  const rightDev = ranks.filter(r => r.dev > 0);
-  const T = rightDev.reduce((a,r) => a + r.rank, 0);
-  const k0 = Math.max(0, Math.round(2 * T / k - (k + 1) / 2));
+  const dev = ys.map(y => y - fe.theta);
+  const ranks = averageRanks(dev.map(Math.abs));
+  let Tpos = 0, Tneg = 0;
+  for (let i = 0; i < k; i++) {
+    if (dev[i] > 0) Tpos += ranks[i];
+    else if (dev[i] < 0) Tneg += ranks[i];
+  }
+  // Over-represented side => suppression on the opposite side.
+  const rightHeavy = Tpos >= Tneg;      // positive/right side over-represented
+  const T = rightHeavy ? Tpos : Tneg;
+  const k0 = Math.max(0, Math.round((4 * T - k * (k + 1)) / (2 * k - 1)));
   const yFilled = [...ys];
   const vFilled = [...vs];
   for (let i = 0; i < k0; i++) {
-    const mirrorIdx = k - 1 - i;
-    if (mirrorIdx >= 0) {
+    // right-heavy => fill left by mirroring the largest studies;
+    // left-heavy  => fill right by mirroring the smallest studies.
+    const mirrorIdx = rightHeavy ? (k - 1 - i) : i;
+    if (mirrorIdx >= 0 && mirrorIdx < k) {
       yFilled.push(2 * fe.theta - ys[mirrorIdx]);
       vFilled.push(vs[mirrorIdx]);
     }
@@ -413,6 +446,7 @@ export function trimFill(yi, vi) {
 export function metaAnalysis(yi, vi, options = {}) {
   const method = options.method || 'REML';
   const k = yi.length;
+  if (k === 0) throw new Error('metaAnalysis: cannot analyse an empty dataset (k=0)');
 
   // 1. Estimate tau2
   const est = (estimators[method] || estimators.REML)(yi, vi);
